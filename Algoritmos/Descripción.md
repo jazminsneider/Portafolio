@@ -24,5 +24,5 @@ El objetivo fue analizar y comparar los algoritmos según:
 
 Cada carpeta contiene implementaciones de los tres métodos.
 
---
+---
 Este trabajo fue realizado como parte de un estudio sobre análisis de algoritmos y eficiencia computacional.
