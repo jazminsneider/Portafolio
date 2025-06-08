@@ -20,6 +20,7 @@ El objetivo fue analizar y comparar los algoritmos según:
 ## Estructura
 
 📂 python/
+
 📂 cpp/
 
 Cada carpeta contiene implementaciones de los tres métodos.
