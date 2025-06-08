@@ -1,0 +1,824 @@
+---
+title: "TP1_TDVI"
+author: "Tomás Gallo, Nadia Molina y Jazmín Sneider"
+date: "2024-08-29"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+## Ejercicio 1: Introducción al problema
+
+Para nuestro análisis, seleccionamos un archivo CSV que contiene 36,285 observaciones de reservas de un hotel y 17 variables relacionadas con estas reservas. Este archivo incluye información detallada sobre las reservas, como el precio de la habitación, el número de personas que se hospedan, entre otros datos relevantes. Además, nos proporciona información sobre si la reserva fue cancelada o no. Aproximadamente un tercio de las reservas en el archivo fueron canceladas, mientras que las restantes dos terceras partes no lo fueron.
+
+El objetivo de nuestro análisis es predecir si una reserva será cancelada o no, basándonos en las distintas variables asociadas a cada observación.
+
+Las variables o columnas del CSV son las siguientes:
+
+Booking_ID: Identificador único de cada reserva. Decidimos no utilizar esta variable para la predicción.
+
+number.of.adults: Número de adultos incluidos en la reserva.
+
+number.of.children: Número de niños incluidos en la reserva.
+
+number.of.week.nights: Número de noches entre semana incluidas en la reserva.
+
+number.of.weekend.nights: Número de noches de fin de semana incluidas en la reserva.
+
+type.of.meal: Tipo de plan de comida incluido en la reserva. Esta es una variable categórica con las opciones: "Meal Plan 1", "Meal Plan 2", "Meal Plan 3" y "Not Selected".
+
+car.parking.space: Indica si se solicitó un lugar en el estacionamiento del hotel (1 para sí, 0 para no).
+
+room.type: Tipo de habitación reservada. Es una variable categórica con siete posibles valores: "Room_Type 1", "Room_Type 2", "Room_Type 3", "Room_Type 4", "Room_Type 5", "Room_Type 6" y "Room_Type 7".
+
+lead.time: Número de días entre la fecha de la reserva y la fecha de llegada.
+
+market.segment.type: Tipo de segmento de mercado asociado a la reserva. Es una variable categórica con cinco valores: "Aviation", "Complementary", "Corporate", "Offline" y "Online".
+
+repeated: Indica si la reserva es repetida, es decir, si ya se había realizado una reserva similar anteriormente (1 para sí, 0 para no).
+
+P.C: Número de reservas canceladas por el cliente antes de esta reserva.
+
+P.not.C: Número de reservas no canceladas por el cliente antes de esta reserva.
+average.price: Precio promedio de la reserva.
+special.requests: Número de solicitudes especiales realizadas por el cliente en la reserva.
+
+date.of.reservation: Fecha en la que se realizó la reserva. Originalmente aparecía en formato fecha  (mes/dia/año) pero para nuestro análisis decidimos agregar una nueva variable llamada season que contiene la estación del año según su mes. Además, como el csv está  hecho con datos de EEUU, decidimos poner las estaciones del año correspondientes al país. 
+
+booking.status: Indica si la reserva fue cancelada o no. Originalmente, esta variable presentaba los valores "Canceled" o "Not Canceled", pero para nuestro análisis se codificó como 1 para cancelada y 0 para no cancelada.
+
+
+## Ejercicio 2: Preparación de los datos
+
+Cargamos los datos del csv elegido. 
+
+```{r}
+datos <- read.csv(file = "booking.csv", header = TRUE)
+```
+
+Lo primero que hicimos fue convertir la variable predicha, a una variable binaria, 1 si es "canceled", y 0 en caso contrario. 
+Por otro lado, convertimos las variables char, en tipo factor para tomarlas como categóricas en nuestro modelo. 
+Por último, el csv tiene el detalle de en qué fecha reservó la persona, consideramos que para hacer un análisis de esas fechas debíamos agruparlas según las estaciones del año en el que fueron hechas las reservas.
+
+```{r}
+datos$booking.status <- ifelse(datos$booking.status == "Canceled",1,0)
+# Convertimos las variables categóricas a factores
+datos$room.type <- as.factor(datos$room.type)
+datos$type.of.meal <- as.factor(datos$type.of.meal)
+datos$market.segment.type <- as.factor(datos$market.segment.type)
+
+# Nos aseguramos de que la fecha esté en formato Date
+datos$date.of.reservation <- as.Date(datos$date.of.reservation, format = "%m/%d/%Y")
+
+# Agrupamos las fechas en estaciones del año
+datos$season <- as.factor(
+  ifelse(format(datos$date.of.reservation, "%m") %in% c("12", "01", "02"), "Winter",
+  ifelse(format(datos$date.of.reservation, "%m") %in% c("03", "04", "05"), "Autumn",
+  ifelse(format(datos$date.of.reservation, "%m") %in% c("06", "07", "08"), "Summer", "Spring"))))
+```
+
+Para ver cómo interactúan las distintas variables del CSV hicimos una matriz de correlación. 
+Primero lo hicimos con las variables numéricas y luego con las categóricas. Esta división se debe a que hay demasiadas variables para un sólo gráfico y si poníamos todas juntas no se lograba apreciar bien la correlación.
+
+Tenemos en rojo la cercanía a correlación -1 y en azul a 1. Mas cercano a 1 implica relación positiva y cercano a -1 implica relación negativa.
+Pudimos observar que la variable con mayor relación positiva con **booking.status** era **lead.time**. Estar relacionada positivamente con **booking.status** hace referencia a que contribuye más a la cancelación, mientras que estar relacionado negativamente hace referencia a que contribuye a que la reserva no sea cancelada. 
+Además de **lead.time**, la variable **special.requests** también parece tener una correlación moderada negativa con **booking.status**. **Average.price** también muestra una correlación positiva con nuestra variable a predecir. No es casualidad que más adelante en el árbol de decisión éstas sean las primeras variables que aparecen y generan divisiones.
+
+
+```{r}
+#importamos la libreria corr
+library(corrplot)
+# Seleccionamos solo las columnas numéricas
+variables_numericas <- datos[, c('booking.status', 'number.of.adults', 'number.of.children', 'number.of.weekend.nights', 'number.of.week.nights', 'car.parking.space', 'lead.time', 'repeated', 'P.C', 'P.not.C', 'average.price', 'special.requests')]
+
+# Calculamos la matriz de correlación para variables numéricas
+matriz_de_correlaciones_vn <- cor(variables_numericas, use = "complete.obs")
+
+# Visualizamos la matriz de correlación numérica usando corrplot
+corrplot(matriz_de_correlaciones_vn, method = "color", type = "upper", tl.col = "black", 
+         tl.cex = 0.8, title = "Matriz de Correlación - Variables Numéricas", mar = c(0,0,1,0))
+
+
+```
+Para entender mejor la relación entre las variables categóricas y el estado de las reservas (**booking.status**), creamos una matriz de correlaciones específica para estas variables. Esta matriz no solo presenta cada variable categórica de manera individual, sino que también desglosa sus categorías, permitiéndonos observar cómo cada una de ellas influye en la predicción de cancelación de reservas.
+Al analizar la matriz de correlaciones, observamos que las estaciones del año en las que se hicieron las reservas (**season**) muestran una correlación significativa con **booking.status**. De acuerdo con el cuadro de colores de la matriz, las reservas tienden a ser más canceladas en verano (indicado por un color azul claro, que representa valores de correlación entre 0 y 0.2). Por otro lado, en invierno, las reservas muestran una menor tendencia a ser canceladas (reflejado por un color rojo claro, con valores de correlación entre 0 y -0.2).
+
+Además, detectamos que la variable **market.segment.type** también presenta una influencia notable en la cancelación de reservas, algo que confirmaremos más adelante al analizar los resultados del árbol de decisión.
+
+
+```{r}
+
+library(fastDummies)
+
+# Creamos las variables dummy sin eliminar ninguna categoría
+variables_categoricas <- dummy_cols(datos, select_columns = c("season", "type.of.meal", "room.type", "market.segment.type"), remove_first_dummy = FALSE)
+
+# Seleccionamos solo las variables dummy generadas y la variable booking.status
+variables_categoricas <- variables_categoricas[, c("booking.status", grep("type.of.meal|room.type|market.segment.type|season", colnames(variables_categoricas), value = TRUE))]
+
+# Nos aseguramos de que todas las columnas sean numéricas
+variables_categoricas <- data.frame(lapply(variables_categoricas, as.numeric))
+
+# Calculamos la matriz de correlaciones
+matriz_de_correlaciones_vc <- cor(variables_categoricas, use = "complete.obs")
+# Generamos el corrplot
+corrplot(matriz_de_correlaciones_vc, method = "color", type = "upper", tl.col = "black", 
+         tl.cex = 0.5, title = "Matriz de Correlación - Variables Categóricas", mar = c(0,0,1,0))
+
+```
+
+
+## Ejercicio 3: Construcción de un árbol de decisión básico
+
+Primero realizamos la división del conjunto de datos [70%, 15%, 15%]
+
+```{r}
+observaciones_totales <- nrow(datos)
+set.seed(500)
+conjunto_total<-sample(1:observaciones_totales, size=observaciones_totales)
+# Calculamos los índices de corte
+indice_entrenamiento <- round(0.7 * observaciones_totales)
+indice_validacion <- round(0.85 * observaciones_totales)
+# Creamos los subconjuntos
+conjunto_entrenamiento <- conjunto_total[1:indice_entrenamiento]
+conjunto_validacion <- conjunto_total[(indice_entrenamiento + 1):indice_validacion]
+conjunto_test <- conjunto_total[(indice_validacion + 1):observaciones_totales]
+
+data_entrenamiento <- datos[conjunto_entrenamiento, ]
+data_validacion <- datos[conjunto_validacion, ]
+data_test <- datos[conjunto_test, ]
+```
+Luego realizamos el arbol e imprimimos los valores de los hiperparametros con los valores por defecto para analizarlos:
+```{r}
+library(rpart)
+library(rpart.plot)
+arbol <- rpart(booking.status ~ number.of.adults + number.of.children + number.of.weekend.nights + number.of.week.nights + type.of.meal + car.parking.space + room.type + lead.time + market.segment.type + repeated + P.C + P.not.C + average.price + special.requests+ market.segment.type+season, data = data_entrenamiento, method = "class")
+rpart.plot(arbol)
+print(arbol$control)
+```
+
+Observando el árbol que obtuvimos dejando todos los hiperparámetros por defecto notamos que:
+- El primer nodo del árbol usa la variable **lead.time** como su principal criterio de división. Esto confirma lo que notamos en la matriz de correlación, donde la variable **lead.time** era la que más correlación tenía con nuestra variable de interés. Usando esta variable el árbol se divide en dos ramas principales: una para <152 y otra para >=152. Esto sugiere que reservas realizadas con más de 152 días de anticipación tienen un comportamiento significativamente diferente en términos de probabilidad de ser o no canceladas.
+- Para reservas con **lead.time** >= 152, la siguiente división significativa es por **average.price**. Para precios promedio menores a 100, la proba de cancelación es menor. Esto nos podría estar diciendo que los clientes que reservan con mucha anticipación y a un precio más bajo tienden a no cancelar sus reservas.
+- En la otra rama de **lead.time**, donde es <152, observamos que la variable **special.request** tiene importancia a la hora de decidir. Si no hay solicitudes especiales, el árbol se sigue dividiendo aún más usando la variable **market.segment.type**. Se destaca que los segmentos de mercado como "Complementary", "Corporate", "Offline" y "Aviation" tienen diferentes probabilidades de cancelación. Esta misma variable se utiliza también en otra rama del árbol por lo que su importancia destaca.
+- Otra variable como **number.of.adults** aparece en los niveles inferiores del árbol, sugiriendo que tienen una menor influencia directa pero aún aportan en ciertas combinaciones específicas de condiciones y **lead.time** vuelve a repetirse en los niveles inferiores del árbol volviendo a mostrar otra vez su importancia.
+
+
+## Ejercicio 4: Evaluación del árbol de decisión básico
+Realizamos las predicciones en el conjunto de testeo
+```{r}
+predicciones_original <- predict(arbol, newdata = data_test, type = "class")
+```
+Ahora que tenemos las predicciones podemos calcular las metricas de performance:
+
+### Matriz de confusión:
+Podemos decir que, a simple vista, el modelo parece estar haciendo un buen trabajo en la clasificación, ya que los valores en la diagonal de la matriz (que representan los casos en los que el modelo acertó) son considerablemente mayores que los valores fuera de la diagonal (los casos en los que el modelo falló).
+Notamos que el modelo cometió errores en 949 casos de 5443, lo que representa un 17.4% de error.
+
+
+```{r}
+confusion_matrix <- table(Predicted = predicciones_original, Actual = data_test$booking.status)
+print(confusion_matrix)
+```
+
+### Accuracy:
+Observando los resultados, podemos decir que a simple vista el modelo parece estar haciendo un buen trabajo, acertando en 4494 de 5443 casos, lo que corresponde a un 82.6% de accuracy. Esto significa que el modelo predice correctamente la clase de los datos en la mayoría de los casos. 
+
+```{r}
+accuracy <- sum(diag(confusion_matrix)) / sum(confusion_matrix)
+print(accuracy)
+```
+### Precisión y Recall:
+-La precisión del modelo se calcula como la proporción de verdaderos positivos sobre el total de predicciones positivas realizadas por el modelo. En otras palabras, la precisión mide la capacidad del modelo para evitar falsos positivos, es decir, predecir un positivo cuando en realidad no lo es. 
+-El recall mide la proporción de verdaderos positivos sobre todos los casos que eran realmente positivos. Esta métrica refleja la capacidad del modelo para detectar todos los casos positivos presentes en el conjunto de datos.
+Los resultados obtenidos muestran que el modelo tiene una precisión de 76.53% y un recall de 68.44%. La precisión relativamente alta sugiere que el modelo es eficaz para evitar falsos positivos. Sin embargo, el recall indica que todavía hay un número significativo de verdaderos positivos que el modelo no está capturando por lo que aún hay bastante margen de mejora.
+
+
+```{r}
+# PRECISIÓN = TP/(TP+FP) 
+TP <-confusion_matrix[2,2]
+FP <-confusion_matrix[2,1]
+PRECISION <- TP/(TP+FP)
+print(PRECISION)
+
+# RECALL = TP/(TP+FN)
+FN <-confusion_matrix[1,2]
+RECALL <- TP/(TP+FN)
+print(RECALL)
+```
+### F1-score: 
+El F1-score nos ayuda a balancear las métricas que obtuvimos hasta el momento. Un modelo con alta precisión pero bajo recall no está encontrando todas las cosas que debería. Y un modelo con alto recall pero baja precisión está encontrando muchas cosas, pero muchas no son lo que estamos verdaderamente buscando. La fórmula del F1-score es una manera de combinar precisión y recall en una sola cifra. Es como tomar un promedio ponderado donde queremos que ambas partes sean importantes. La fórmula se asegura de que si uno de los dos es muy bajo, el F1-score también será bajo, porque queremos un buen equilibrio entre ambos.
+En general obtuvimos un valor, no perfecto, pero que muestra un buen balance entre ambas métricas.
+```{r}
+F1SCORE <- (2*PRECISION*RECALL)/(PRECISION+RECALL)
+print(F1SCORE)
+```
+### Auc-ROC:
+La curva ROC traza cómo varía la tasa de verdaderos positivos en relación con la tasa de falsos positivos a medida que se ajusta el threshold del modelo. Un modelo ideal tendría una curva que se acerca al borde superior izquierdo del gráfico, indicando una alta tasa de verdaderos positivos y una baja tasa de falsos positivos.Y la AUC (área bajo la curva) resume el rendimiento global del modelo de clasificación al calcular el área bajo la curva ROC. Mientras más cercano a 1 es el área mejor distingue entre clases el modelo, por lo que nuestro valor está obteniendo buenos resultados en general.
+
+```{r}
+library(MLmetrics)
+
+AUCROC <- AUC(y_pred = predicciones_original, y_true=data_test$booking.status)
+print(AUCROC)
+
+#usamos esta libreria para graficarla
+library(pROC)
+
+# Calculamos la curva ROC
+roc_curve <- roc(data_test$booking.status, as.numeric(predicciones_original))
+
+# Graficamos la curva ROC
+plot(roc_curve, main="Curva ROC", col="red",xlab="TPR",ylab="FPR")
+
+```
+
+## Ejercicio 5: Optimización del modelo
+
+En el proceso de optimización de nuestro modelo, nos enfocamos en ajustar tres hiperparámetros clave: max_depth, min_split y min_bucket. Cada uno de estos hiperparámetros juega un papel muy importante en la configuración del modelo y su rendimiento final:
+
+max_depth: Este parámetro define la profundidad máxima del árbol de decisión. Un valor mayor permite que el modelo capture más complejidad en los datos, pero también puede llevar a un sobreajuste (overfitting). Optimizamos este parámetro dentro de un rango de 1 a 30 para encontrar el equilibrio adecuado entre precisión y generalización.
+
+min_split: Es el número mínimo de observaciones requeridas para dividir un nodo en el árbol. Este parámetro controla el crecimiento del árbol y ayuda a evitar la creación de nodos con un número insuficiente de observaciones, lo que podría resultar en una alta varianza y sobreajuste. Probamos diferentes valores para encontrar el punto óptimo que balancee el modelo.
+
+min_bucket: Este parámetro determina el tamaño mínimo de los "buckets" o grupos en los que se dividen las observaciones en las hojas del árbol. Un valor adecuado evita la creación de hojas con muy pocas observaciones, que podrían resultar en una alta varianza. Ajustamos este parámetro probando varios valores, desde 1 hasta el número total de observaciones, para asegurar una búsqueda equilibrada.
+
+Dado el amplio rango de valores que pueden tener min_bucket y min_split tuvimos que probar varias opciones para encontrar valores que balancearan una buena búsqueda pero no demoraran demasiado en términos de tiempos de ejecución.
+
+Inicialmente, decidimos investigar cómo cada hiperparámetro individualmente afectaba el rendimiento del modelo mediante la graficación de la curva ROC. Esto nos permitió visualizar cómo variaba la capacidad del modelo para clasificar correctamente las instancias en función de cada parámetro, proporcionando una comprensión más clara del impacto de cada ajuste.
+
+
+
+
+### Variación del maxdepth
+
+```{r}
+# Creamos un vector para almacenar los AUC
+auc_values_depth <- numeric(30)
+# Secuencia de 1 a 30
+depths <- 1:30
+
+for (depth in depths) {
+  arbol_md <- rpart(booking.status ~ number.of.adults + number.of.children + number.of.weekend.nights + number.of.week.nights + type.of.meal + car.parking.space + room.type + lead.time + market.segment.type + repeated + P.C + P.not.C + average.price + special.requests + season,
+                 cp = 0, xval = 0, data = data_entrenamiento, method = "class", maxdepth = depth)
+  
+  predicciones_md <- predict(arbol_md, newdata = data_test, type = "class")
+  valorcito <- AUC(y_pred = predicciones_md, y_true = data_test$booking.status)
+  
+  # Guardamos el valor de AUC en el vector
+  auc_values_depth[depth] <- valorcito
+  
+  # Imprimimos cada uno de los resultados
+  print(paste("El AUC asociado a la depth", depth, "es", valorcito))
+}
+```
+
+
+Graficamos el maxdepht
+```{r}
+profundidades <- seq(1, 30, by = 1)
+
+par(mar = c(5, 5, 4, 2) + 0.1)
+plot(profundidades, auc_values_depth, type = "l", col = "red",
+     xlab = "Valor de maxdepth", ylab = "AUC", main = "AUC variando la maxdepth")
+
+```
+Notamos que al aumentar el valor de max_depth del árbol de decisión, la AUC-ROC también tiende a incrementarse. Esto se debe a que un mayor max_depth permite que el árbol desarrolle más nodos, capturando mejor las complejidades de los datos. Al permitir divisiones más profundas, el modelo puede segmentar los datos en grupos más específicos y aprender patrones más detallados, lo que mejora su capacidad para distinguir entre clases. Esta mayor discriminación se refleja en una AUC-ROC más alta, indicando un mejor rendimiento del modelo en términos de clasificación.
+
+Sin embargo, aumentar la profundidad del árbol también puede llevar a que el modelo se ajuste demasiado a los datos de entrenamiento, un problema conocido como sobreajuste (overfitting).Además, un árbol más profundo aumenta la complejidad computacional, requiriendo más tiempo y recursos para su entrenamiento, lo cual puede ser ineficiente en conjuntos de datos grandes.
+
+
+### Variación del minsplit
+
+```{r}
+auc_values_split <- numeric(70)
+index <- 1
+
+split <- 1
+while (split <= 34000) {
+  arbol_ms <- rpart(booking.status ~ number.of.adults + number.of.children + number.of.weekend.nights + number.of.week.nights + type.of.meal + car.parking.space + room.type + lead.time + market.segment.type + repeated + P.C + P.not.C + average.price + special.requests + season,
+                 cp = 0, xval = 0, data = data_entrenamiento, method = "class", minsplit = split)
+  
+  predicciones_ms <- predict(arbol_ms, newdata = data_test, type = "class")
+  valor <- AUC(y_pred = predicciones_ms, y_true = data_test$booking.status)
+  
+  auc_values_split[index] <- valor
+  
+  print(paste("El AUC asociado a la minsplit", split, "es", valor))
+  
+  split <- split + 500
+  index <- index + 1
+}
+
+# Ajustamos el vector de AUC para eliminar elementos no utilizados
+auc_values_split <- auc_values_split[1:(index-1)]
+```
+Graficamos la variacion en minsplit
+```{r}
+minsplit_values <- seq(1, 34000, by = 500)[1:(index-1)]
+
+# Configuramos los márgenes de la gráfica
+par(mar = c(5, 5, 4, 2) + 0.1)
+
+# Graficamos
+plot(minsplit_values, auc_values_split, type = "l", col = "blue",
+     xlab = "Valor de minsplit", ylab = "AUC", 
+     main = "AUC variando minsplit")
+```
+
+
+```{r}
+#Ahora variamos el minbucket
+
+auc_values_minbucket <- numeric(70)
+indices <- 1
+
+bucketminimo <- 1
+while (bucketminimo <= 34000) {
+  arbol_mb <- rpart(booking.status ~ number.of.adults + number.of.children + number.of.weekend.nights + number.of.week.nights + type.of.meal + car.parking.space + room.type + lead.time + market.segment.type + repeated + P.C + P.not.C + average.price + special.requests + season,
+                 cp = 0, xval = 0, data = data_entrenamiento, method = "class", minbucket=bucketminimo)
+  
+  predicciones_mb <- predict(arbol_mb, newdata = data_test, type = "class")
+  valor <- AUC(y_pred = predicciones_mb, y_true = data_test$booking.status)
+  
+  auc_values_minbucket[indices] <- valor
+  
+  print(paste("El AUC asociado al minbucket", bucketminimo, "es", valor))
+  
+  bucketminimo <- bucketminimo + 500
+  indices <- indices + 1
+}
+
+# Ajustamos el vector de AUC para eliminar elementos no utilizados
+auc_values_minbucket<- auc_values_minbucket[1:(indices-1)]
+
+# Creamos un vector de splits correspondientes
+buckets <- seq(1, bucketminimo - 500, by = 500)
+
+# Graficar
+plot(buckets, auc_values_minbucket, type = "l",col = "pink",
+     xlab = "Valor de minbucket", ylab = "AUC", main = "AUC variando el minbucket")
+```
+Por otro lado, al ajustar los hiperparámetros min_bucket y min_split, observamos un comportamiento diferente al de max_depth.  A medida que aumentamos estos valores, la AUC-ROC tiende a disminuir. Esto ocurre porque valores más altos de min_bucket y min_split hacen que el árbol sea más restrictivo en su capacidad de dividirse y crecer. Un árbol con menos divisiones tiende a ser más simple, lo que puede resultar en un modelo que no captura completamente la complejidad de los datos, reduciendo su capacidad de discriminación entre clases y, por tanto, disminuyendo la AUC-ROC.
+
+Además, restringir el crecimiento del árbol puede ayudar a prevenir el sobreajuste, lo cual mejora la capacidad del modelo para generalizar en datos nuevos.  Sin embargo, esta simplificación puede venir acompañada de una pérdida de precisión, ya que el modelo podría no captar suficientes patrones en los datos, llevando a un subajuste (underfitting).
+
+
+
+A pesar de los conocimientos obtenidos, reconocimos que la mejor manera de encontrar una combinación óptima de los tres hiperparámetros era explorar todas las posibles combinaciones simultáneamente. Para ello, implementamos un enfoque de búsqueda más exhaustivo utilizando tres ciclos for anidados. Este método permitió evaluar una gran cantidad de combinaciones posibles de los valores para max_depth, min_split y min_bucket, asegurando que encontráramos la configuración que ofreciera el mejor rendimiento general del modelo. 
+En el análisis previo que hicimos de los hiperparámetros por separado pudimos ver que a partir de cierto umbral el valor del AUC-ROC se estanca. Por esto decidimos aplicarle al algoritmo una tolerancia de 0.001, que hace que se corte el ciclo del minsplit si el valor del área de la curva no varió mucho, y sigue analizando con el siguiente. 
+Además, realizamos una función auxiliar que calcula el AUC-ROC de un arbol creado con un maxdepth, minsplit y minbucket pasados por parametro. 
+Notamos con el analisis planteado anteriormente que variando uno de los hiperparametros y dejando los otros por defecto se llegaban a buenos resultados, por lo que quisimos considerarlos. Para eso inicializamos a los hiperparametros en 0, y cuando toman ese valor se los cambia al que deberian tener por defecto.
+También vimos que para minsplit y minbucket, los valores de 1 daban buenos resultados de auc, por lo que quisimos tenerlos en cuenta. Lo que hacemos es inicializar en 0 (que en realidad son los hiperparámetros por defecto según nuestra función auxiliar) y luego cuando termino de analizar con ese número, les ponemos el valor de 1, después ya incrementamos según el valor pasado por parámetro. 
+
+Finalmente, al aplicar esta estrategia, logramos identificar los hiperparámetros óptimos.
+
+# Buscamos hiperparametros
+```{r}
+calcular_auc <- function(data_validation,data_training, max_depth, min_split, min_bucket) {
+  #Si alguno de los valores está en 0, entonces le pongo el valor del hiperparametro por defecto 
+  if(min_split == 0){
+    min_split <- 20
+  }
+  if(min_bucket == 0){
+    min_bucket <- 7
+  }
+  arbol <- rpart(booking.status ~ number.of.adults + number.of.children + number.of.weekend.nights + number.of.week.nights + type.of.meal + car.parking.space + room.type + lead.time + market.segment.type + repeated + P.C + P.not.C + average.price + special.requests + season, data = data_training, cp = 0, xval = 0, method = "class", minbucket = min_bucket, minsplit = min_split, maxdepth = max_depth)
+  
+  predicciones<-predict(arbol, newdata = data_validation, type = "class")
+  auc <- AUC(y_pred = predicciones, y_true = data_validation$booking.status)
+
+  return(c(auc,max_depth,min_split,min_bucket))
+}
+
+
+Optimizar_arbol <- function(data_validation,data_training, i, j, k) {
+
+maxdepth1<-1
+min_bucket_optimo<-0
+max_depth_optimo<-0
+min_split_optimo<-0
+auc_experimentacion3<-0
+#Estos son para que si se estanca podamos saber que tenemos que cortar
+auc_anterior <-0
+auc_actual <-0
+
+while(maxdepth1<=30){
+  #Ponemos para que analice con el por defecto de minbucket
+  minbucket1<-0
+  while(minbucket1<=10000){
+     #Ponemos para que analice con el por defecto de minsplit
+    minsplit1<-0
+    while(minsplit1<=10000){
+      auc_actual <- calcular_auc(data_validation,data_training, maxdepth1,minsplit1,minbucket1)
+      hola = auc_actual[1]
+      if(auc_experimentacion3<auc_actual[1]){
+        auc_experimentacion3 <- auc_actual[1]
+        max_depth_optimo <- auc_actual[2]
+        min_split_optimo <- auc_actual[3]
+        min_bucket_optimo <- auc_actual[4]
+      }
+       #Si el resultado no varía mucho, que siga analizando con el próximo valor
+      if(abs(auc_actual[1][1] - auc_anterior) <= 0.001){
+        break
+      }
+      auc_anterior<-auc_actual[1]
+      #Luego del por defcto, que analice con el 1
+      if(minsplit1 == 0){
+        minsplit1<-1
+      }else{
+        #Luego del 1, que analice con el +k
+        minsplit1<-minsplit1+k
+      }
+    }
+    #Luego del por defcto, que analice con el 1
+    if(minbucket1 == 0){
+        minbucket1<-1
+        
+      }else{
+        #Luego del 1, que analice con el +j
+           minbucket1<-minbucket1+j
+      }
+    }
+  maxdepth1<-maxdepth1+i
+}
+#Devolvemos todas las características de nuestro árbol óptimo
+  return(c(auc_experimentacion3, max_depth_optimo, min_split_optimo, min_bucket_optimo))
+}
+
+Valores_arbol_optimizado <- Optimizar_arbol(data_validacion, data_entrenamiento, 1, 1000, 1000) 
+auc_optimizado <- Valores_arbol_optimizado[1]
+md_optimizado <- Valores_arbol_optimizado[2]
+ms_optimizado <- Valores_arbol_optimizado[3]
+mb_optimizado <- Valores_arbol_optimizado[4]
+
+arbol_optimizado <- rpart(booking.status ~ number.of.adults + number.of.children + number.of.weekend.nights + number.of.week.nights + type.of.meal + car.parking.space + room.type + lead.time + market.segment.type + repeated + P.C + P.not.C + average.price + special.requests + season, data = data_entrenamiento, cp = 0, xval = 0, method = "class", minbucket = mb_optimizado, minsplit =ms_optimizado, maxdepth = md_optimizado)
+rpart.plot(arbol_optimizado,cex = 0.30)
+
+#Imprimimos el auc asociado al conjunto de validacion con el arbol optimizado
+print(auc_optimizado)
+
+#Calculamos las predicciones con el arbol optimizado para el conjunto de test
+predicciones_optimizadas_test<-predict(arbol_optimizado, newdata = data_test, type = "class")
+
+```
+Como podemos observar, el area bajo la curva aumenta por arriba de 0.85 indicando que se logró optimizar el arbol basico planteado en el ejercicio 3.
+
+Para comparar el rendimiento en el conjunto de testeo de de ambos arboles, volvimos a calcular las metricas del ejercicio 4 para el árbol optimizado.
+
+```{r}
+print(paste("maxdepth optimizado = ", md_optimizado))
+print(paste("minsplit optimizado = ", ms_optimizado))
+print(paste("minbucket optimizado = ", mb_optimizado))
+
+```
+
+```{r}
+confusion_matrix_optimizada <- table(Predicted = predicciones_optimizadas_test, Actual = data_test$booking.status)
+print(confusion_matrix_optimizada)
+```
+
+```{r}
+accuracy_optimizada <- sum(diag(confusion_matrix_optimizada)) / sum(confusion_matrix_optimizada)
+print(accuracy)
+```
+
+
+```{r}
+# PRECISIÓN = TP/(TP+FP) 
+TP_opt <-confusion_matrix_optimizada[2,2]
+FP_opt <-confusion_matrix_optimizada[2,1]
+PRECISION_opt <- TP_opt/(TP_opt+FP_opt)
+print(PRECISION_opt)
+
+# RECALL = TP/(TP+FN)
+FN_opt <-confusion_matrix_optimizada[1,2]
+RECALL_opt <- TP_opt/(TP_opt+FN_opt)
+print(RECALL_opt)
+```
+
+```{r}
+F1SCORE_optimizado <- (2*PRECISION_opt*RECALL_opt)/(PRECISION_opt+RECALL_opt)
+print(F1SCORE_optimizado)
+```
+
+```{r}
+#Imprimimos el auc asociado al conjunto de test con el arbol optimizado
+auc_test_optimizado <- AUC(y_pred = predicciones_optimizadas_test, y_true = data_test$booking.status)
+print(auc_test_optimizado)
+```
+Notamos que en el nuevo árbol optimizado, observamos un aumento en todas las principales métricas de performance. Estas mejoras indican que el modelo es ahora más eficaz para clasificar correctamente las instancias positivas y negativas, reduciendo tanto los falsos positivos como los falsos negativos. Además, el aumento de la AUC-ROC demuestra una mayor capacidad del modelo para distinguir entre las diferentes clases.
+
+### Ejercicio 6
+En un principio, cabe destacar que el arbol optimizado presenta una bastante mayor profundidad que el original, imposibilitando un análisis exhaustivo del mismo. Sin embargo, por lo poco que podemos observar las variables principales del arbol basico se mantienen en el optimizado. Dicha profundidad puede provocar un mayor riesgo de Overfitting. A pesar de ello, todas las metricas de performance indican una mejora en la predicción de datos nuevos, por lo que se logró la optimización deseada.
+
+A diferencia del arbol basico, este presenta 18 niveles en vez de 5.
+
+Un aspecto interesante que se observa en la comparación entre el árbol de decisión optimizado y el árbol básico es el cambio en el orden de importancia de las variables. En el modelo optimizado, no solo se modificó la jerarquía de las variables, sino que también se incorporaron nuevas variables que anteriormente no eran consideradas por el modelo básico. Entre estas nuevas variables se destacan **number.of.week.nights**, **number.of.weekend.nights** y **season**, que ahora juegan un papel relevante en el proceso de toma de decisiones del modelo optimizado. También, pudimos ver que el árbol es tan profundo que todas las variables se agregan a las divisiones del mismo.
+
+Para poder visualizar y comparar la importancia de las variables en cada uno de los árboles, se ejecutaron los siguientes comandos que permitieron analizar en detalle cómo ha evolucionado el peso de cada variable en la estructura del modelo optimizado respecto al modelo básico. En el árbol optmizado, los pesos de relvancia aumentaron para todas las variables.
+
+Además, pudimos ver que el orden de importancia de cada variable cambió. Por ejemplo, en el árbol original la sección de **market.segment.type** y **average.price** ocupaban el 2ndo y 3er lugar de importancia respectivamente, mientras que en el optimizado intercambian lugares, ahora el precio es la segunda variable más relevante y la tercera es el mercado. También **season** subió bastante en relevancia. 
+Decidimos imprimir los pesos de cada variable:
+
+```{r}
+print("importancia de las variables predictoras para el árbol original:")
+arbol$variable.importance
+print("importancia de las variables predictoras para el árbol optimizado:")
+arbol_optimizado$variable.importance
+
+```
+
+### Ejercicio 7: Impacto de valores faltantes
+Primero que nada, para observar que sucedía en las predicciones de un dataset de entrenamiento con valores de variables predictoras faltantes para las observaciones, creamos dataframes con estas características. 
+Para lograr la eliminación de los valores, en este ejercicio, decidimos hacer una función que llenara con NA aleatoriamente el pocentaje de los datos pasados por parámetro.  
+
+```{r}
+#Creamos una función que elimina el porcentaje pasado por parámetro de cada uno de los datos.
+eliminar_porciento <- function(muestras, porcentaje) {
+  data <- muestras
+  # Cuerpo de la función
+  num_filas <- nrow(data)
+  num_na <- round(num_filas * porcentaje)
+  
+  variables = c("number.of.adults","number.of.children", "number.of.weekend.nights", "number.of.week.nights","type.of.meal", "car.parking.space","room.type", "lead.time","market.segment.type", "repeated", "P.C","P.not.C" ,"average.price","special.requests","season")
+  for (variable in variables){
+    indices <- sample(1:num_filas, num_na)
+    data[indices, variable] <- NA
+  }
+  return(data)
+}
+
+data_entrenamiento_na_20 <- eliminar_porciento(data_entrenamiento,0.2)
+data_test_na_20 <- eliminar_porciento(data_test,0.2)
+data_validacion_na_20 <- eliminar_porciento(data_validacion,0.2)
+
+data_entrenamiento_na_50 <- eliminar_porciento(data_entrenamiento,0.5)
+data_test_na_50 <- eliminar_porciento(data_test,0.5)
+data_validacion_na_50 <- eliminar_porciento(data_validacion,0.5)
+
+data_entrenamiento_na_75 <- eliminar_porciento(data_entrenamiento,0.75)
+data_test_na_75 <- eliminar_porciento(data_test,0.75)
+data_validacion_na_75 <- eliminar_porciento(data_validacion,0.75)
+
+```
+
+Generamos los árboles en base a nuestros nuevos datos de entrenamiento.
+Primero generamos el árbol para los datasets con 20% de NA en sus columnas. 
+```{r}
+
+arbol_20 <- rpart(booking.status ~ number.of.adults + number.of.children + number.of.weekend.nights + number.of.week.nights + type.of.meal + car.parking.space + room.type + lead.time + market.segment.type + repeated + P.C + P.not.C + average.price + special.requests + season, data = data_entrenamiento_na_20, method = "class")
+
+
+#Vemos el auc sobre el conjunto de validación con 20% de NA.
+predicciones_validacion_na_20 <-predict(arbol_20, newdata = data_validacion_na_20, type = "class")
+auc_original_validacion_na_20 <- AUC(y_pred = predicciones_validacion_na_20, y_true = data_validacion_na_20$booking.status)
+print(paste("El AUC para el set de validación con 20% de NA es", auc_original_validacion_na_20))
+
+
+#Vemos el auc sobre el conjunto de test con 20% de NA.
+predicciones_test_na_20 <-predict(arbol_20, newdata = data_test_na_20, type = "class")
+auc_original_test_na_20 <- AUC(y_pred = predicciones_test_na_20, y_true = data_test_na_20$booking.status)
+print(paste("El AUC para el set de test con 20% de NA es", auc_original_test_na_20))
+rpart.plot(arbol_20)
+```
+
+
+Luego generamos el árbol para los datasets con 50% de NA en sus columnas.
+
+```{r}
+arbol_50 <- rpart(booking.status ~ number.of.adults + number.of.children + number.of.weekend.nights + number.of.week.nights + type.of.meal + car.parking.space + room.type + lead.time + market.segment.type + repeated + P.C + P.not.C + average.price + special.requests + season, data = data_entrenamiento_na_50, method = "class")
+
+#Vemos el auc sobre el conjunto de validación con 50% de NA.
+predicciones_validacion_na_50 <-predict(arbol_50, newdata = data_validacion_na_50, type = "class")
+auc_original_validacion_na_50 <- AUC(y_pred = predicciones_validacion_na_50, y_true = data_validacion_na_50$booking.status)
+print(paste("El AUC para el set de validación con 50% de NA es", auc_original_validacion_na_50))
+
+
+#Vemos el auc sobre el conjunto de test con 50% de NA.
+predicciones_test_na_50 <-predict(arbol_50, newdata = data_test_na_50, type = "class")
+auc_original_test_na_50 <- AUC(y_pred = predicciones_test_na_50, y_true = data_test_na_50$booking.status)
+print(paste("El AUC para el set de test con 50% de NA es", auc_original_test_na_50))
+rpart.plot(arbol_50)
+```
+
+Por último, hacemos el árbol para el conjunto con 75% de NA
+```{r}
+arbol_75 <- rpart(booking.status ~ number.of.adults + number.of.children + number.of.weekend.nights + number.of.week.nights + type.of.meal + car.parking.space + room.type + lead.time + market.segment.type + repeated + P.C + P.not.C + average.price + special.requests + season, data = data_entrenamiento_na_75, method = "class")
+
+#Vemos el auc sobre el conjunto de validación con 75% de NA.
+predicciones_validacion_na_75 <-predict(arbol_75, newdata = data_validacion_na_75, type = "class")
+auc_original_validacion_na_75 <- AUC(y_pred = predicciones_validacion_na_75, y_true = data_validacion_na_75$booking.status)
+print(paste("El AUC para el set de validación con 75% de NA es", auc_original_validacion_na_75))
+
+
+#Vemos el auc sobre el conjunto de test con 75% de NA.
+predicciones_test_na_75 <-predict(arbol_75, newdata = data_test_na_75, type = "class")
+auc_original_test_na_75 <- AUC(y_pred = predicciones_test_na_75, y_true = data_test_na_75$booking.status)
+print(paste("El AUC para el set de test con 75% de NA es", auc_original_test_na_75))
+rpart.plot(arbol_75)
+```
+
+Por un lado, pudimos notar que a medida que fuimos eliminando más porcentaje de valores, el árbol fue haciendose más chico. Sospechamos que se debe a que tiene menos valores de cada variable, por lo que se le dificulta encontrar relaciones entre el resultado de la reserva y cada una de las columnas predictoras del archivo.
+A su vez, quisimos ver qué tanto afectaba a las predicciones del modelo, por lo que imprimimos los valores de AUC-ROC para el conjunto de testeo de cada uno de los modelos y pudimos ver que a medida que eliminamos más datos, el valor disminuye, afectando el rendimiento de cada uno. Llegando así a valer hasta casi 0.5 en aquellos conjuntos con un 50% y 75% de los valores variables predictoras eliminados, esto quiere decir que se está prediciendo casi al azar.
+
+```{r}
+print(paste("el AUC-ROC para el árbol original (con 100% de los datos) es:",AUCROC))
+print(paste("el AUC-ROC para el árbol con 20% de los datos NA es:",auc_original_test_na_20))
+print(paste("el AUC-ROC para el árbol con 50% de los datos NA es:",auc_original_test_na_50))
+print(paste("el AUC-ROC para el árbol con 75% de los datos NA es:",auc_original_test_na_75))
+```
+
+Ahora optimizamos los árboles generados con los na.  
+Primero optimizamos el árbol del 20%
+```{r}
+valores_arbol_optimizado_NA20 <- Optimizar_arbol(data_validacion_na_20, data_entrenamiento_na_20,1,1000,1000)
+auc_optimizado_na20 <- valores_arbol_optimizado_NA20[1]
+md_optimizado_na20 <- valores_arbol_optimizado_NA20[2]
+ms_optimizado_na20 <- valores_arbol_optimizado_NA20[3]
+mb_optimizado_na20 <- valores_arbol_optimizado_NA20[4]
+
+
+arbol_optimizado_NA20 <- rpart(booking.status ~ number.of.adults + number.of.children + number.of.weekend.nights + number.of.week.nights + type.of.meal + car.parking.space + room.type + lead.time + market.segment.type + repeated + P.C + P.not.C + average.price + special.requests + season, maxdepth = md_optimizado_na20, minsplit = ms_optimizado_na20, minbucket = mb_optimizado_na20,cp=0, xval=0, data = data_entrenamiento_na_20, method = "class")
+
+print(paste("El AUC para el set de validación con 20% de NA optimizado es", auc_optimizado_na20))
+
+predicciones_optimizadas_test_na_20 <- predict(arbol_optimizado_NA20, newdata = data_test_na_20, type = "class")
+auc_optimizado_test_na_20 <- AUC(y_pred = predicciones_optimizadas_test_na_20, y_true = data_test_na_20$booking.status)
+print(paste("El AUC para el set de test con 20% de NA optimizado es", auc_optimizado_test_na_20))
+rpart.plot(arbol_optimizado_NA20)
+```
+
+Graficamos el auc optimizado y el original
+```{r}
+# Curva ROC para el modelo optimizado
+roc_optimizado <- roc(data_test_na_20$booking.status, as.numeric(predicciones_optimizadas_test_na_20))
+
+# Curva ROC para el modelo original
+roc_original <- roc(data_test_na_20$booking.status, as.numeric(predicciones_test_na_20))
+# Graficar la curva ROC del modelo optimizado
+plot(roc_optimizado, col = "blue", main = "Curvas ROC Comparativas - 20% NA", lwd = 2)
+
+# Añadir la curva ROC del modelo original
+lines(roc_original, col = "red", lwd = 2)
+
+# Añadir una leyenda para identificar las curvas
+legend("bottomright", legend = c("Modelo NA Optimizado", "Modelo NA Original"),
+       col = c("blue", "red"), lwd = 2)
+
+```
+
+Hacemos lo mismo con el 50% de NA
+```{r}
+valores_arbol_optimizado_NA50 <- Optimizar_arbol(data_validacion_na_50, data_entrenamiento_na_50,1,1000,1000)
+auc_optimizado_na50 <- valores_arbol_optimizado_NA50[1]
+md_optimizado_na50 <- valores_arbol_optimizado_NA50[2]
+ms_optimizado_na50 <- valores_arbol_optimizado_NA50[3]
+mb_optimizado_na50 <- valores_arbol_optimizado_NA50[4]
+
+arbol_optimizado_NA50 <- rpart(booking.status ~ number.of.adults + number.of.children + number.of.weekend.nights + number.of.week.nights + type.of.meal + car.parking.space + room.type + lead.time + market.segment.type + repeated + P.C + P.not.C + average.price + special.requests + season, maxdepth = md_optimizado_na50,cp=0, xval=0,minsplit = ms_optimizado_na50, minbucket = mb_optimizado_na50, data = data_entrenamiento_na_50, method = "class") 
+
+print(paste("El AUC para el set de validación con 50% de NA optimizado es", auc_optimizado_na50))
+
+predicciones_optimizadas_test_na_50 <- predict(arbol_optimizado_NA50, newdata = data_test_na_50, type = "class")
+auc_optimizado_test_na_50 <- AUC(y_pred = predicciones_optimizadas_test_na_50, y_true = data_test_na_50$booking.status)
+print(paste("El AUC para el set de test con 50% de NA optimizado es", auc_optimizado_test_na_50))
+rpart.plot(arbol_optimizado_NA50)
+
+```
+Graficamos la curva para el original y el optimizado
+```{r}
+# Curva ROC para el modelo optimizado
+roc_optimizado <- roc(data_test_na_50$booking.status, as.numeric(predicciones_optimizadas_test_na_50))
+
+# Curva ROC para el modelo original
+roc_original <- roc(data_test_na_50$booking.status, as.numeric(predicciones_test_na_50))
+# Graficar la curva ROC del modelo optimizado
+plot(roc_optimizado, col = "blue", main = "Curvas ROC Comparativas - 50% NA", lwd = 2)
+
+# Añadir la curva ROC del modelo original
+lines(roc_original, col = "red", lwd = 2)
+
+# Añadir una leyenda para identificar las curvas
+legend("bottomright", legend = c("Modelo NA Optimizado", "Modelo NA Original"),
+       col = c("blue", "red"), lwd = 2)
+
+```
+
+Por último, optimizamos el que tiene el 75% de los valores eliminados. 
+```{r}
+valores_arbol_optimizado_NA75 <- Optimizar_arbol(data_validacion_na_75, data_entrenamiento_na_75,1,1000,1000)
+auc_optimizado_na75 <- valores_arbol_optimizado_NA75[1]
+md_optimizado_na75 <- valores_arbol_optimizado_NA75[2]
+ms_optimizado_na75 <- valores_arbol_optimizado_NA75[3]
+mb_optimizado_na75 <- valores_arbol_optimizado_NA75[4]
+
+arbol_optimizado_NA75 <- rpart(booking.status ~ number.of.adults + number.of.children + number.of.weekend.nights + number.of.week.nights + type.of.meal + car.parking.space + room.type + lead.time + market.segment.type + repeated + P.C + P.not.C + average.price + special.requests + season, maxdepth = md_optimizado_na75, minsplit = ms_optimizado_na75, minbucket = mb_optimizado_na75,cp=0, xval=0, data = data_entrenamiento_na_75, method = "class")
+
+print(paste("El AUC para el set de validación con 75% de NA optimizado es", auc_optimizado_na75))
+
+predicciones_optimizadas_test_na_75 <- predict(arbol_optimizado_NA75, newdata = data_test_na_75, type = "class")
+auc_optimizado_test_na_75 <- AUC(y_pred = predicciones_optimizadas_test_na_75, y_true = data_test_na_75$booking.status)
+print(paste("El AUC para el set de test con 75% de NA optimizado es", auc_optimizado_test_na_75))
+rpart.plot(arbol_optimizado_NA75)
+```
+Graficamos el auc para el optimizado y el original
+```{r}
+# Curva ROC para el modelo optimizado
+roc_optimizado <- roc(data_test_na_75$booking.status, as.numeric(predicciones_optimizadas_test_na_75))
+
+# Curva ROC para el modelo original
+roc_original <- roc(data_test_na_75$booking.status, as.numeric(predicciones_test_na_75))
+# Graficar la curva ROC del modelo optimizado
+plot(roc_optimizado, col = "blue", main = "Curvas ROC Comparativas - 75% NA", lwd = 2)
+
+# Añadir la curva ROC del modelo original
+lines(roc_original, col = "red", lwd = 2)
+
+# Añadir una leyenda para identificar las curvas
+legend("bottomright", legend = c("Modelo NA Optimizado", "Modelo NA Original"),
+       col = c("blue", "red"), lwd = 2)
+
+```
+
+Comparamos los rendimientos del AUC-ROC de los distintos árboles y sus optimizaciones: 
+Pudimos observar que, en todos los casos la optimización funciona, subiendo el valor del área debajo de la curva de AUC aunque sea un poco. Sin embargo, tampoco puede lograr un valor muy elevado con aquellos modelos cuyo entrenamiento tienen muchos valores predictores faltantes.
+
+```{r}
+print(paste("el AUC-ROC para el árbol original:", AUCROC))
+print(paste("el AUC-ROC para el árbol original optimizado:",auc_optimizado))
+
+print(paste("el AUC-ROC para el árbol con 20% de los datos NA es:",auc_original_test_na_20))
+print(paste("el AUC-ROC para el árbol optimizado con 20% de los datos NA es:",auc_optimizado_test_na_20))
+
+print(paste("el AUC-ROC para el árbol con 50% de los datos NA es:",auc_original_test_na_50))
+print(paste("el AUC-ROC para el árbol optimizado con 50% de los datos NA es:",auc_optimizado_test_na_50))
+
+print(paste("el AUC-ROC para el árbol con 75% de los datos NA es:",auc_original_test_na_75))
+print(paste("el AUC-ROC para el árbol optimizado con 75% de los datos NA es:",auc_optimizado_test_na_75))
+```
+
+Graficamos las 4 curvas para los resultados originales y los optimizados. 
+```{r}
+# Calcular las curvas ROC
+roc_original <- roc(data_test$booking.status, as.numeric(predicciones_optimizadas_test))
+roc_original_na_20 <- roc(data_test_na_20$booking.status, as.numeric(predicciones_test_na_20))
+roc_original_na_50 <- roc(data_test_na_50$booking.status, as.numeric(predicciones_test_na_50))
+roc_original_na_75 <- roc(data_test_na_75$booking.status, as.numeric(predicciones_test_na_75))
+
+# Graficar la curva ROC del modelo original
+plot(roc_original, col = "blue", main = "Curvas ROC Comparativas", lwd = 4)
+
+# Añadir la curva ROC del modelo con 20% de NA
+lines(roc_original_na_20, col = "red", lwd = 4)
+
+# Añadir la curva ROC del modelo con 50% de NA
+lines(roc_original_na_50, col = "orange", lwd = 4)
+
+# Añadir la curva ROC del modelo con 75% de NA
+lines(roc_original_na_75, col = "lightgreen", lwd = 4)
+
+# Añadir una leyenda para identificar las curvas
+legend("bottomright", legend = c("Modelo original", "Modelo con 20% NA", "Modelo con 50% NA", "Modelo con 75% NA"),
+       col = c("blue", "red", "orange", "lightgreen"), lwd = 4)
+
+```
+Graficamos las 4 curvas optimizadas:
+```{r}
+# Calcular las curvas ROC
+roc_original <- roc(data_test$booking.status, as.numeric(predicciones_optimizadas_test))
+roc_original_na_20 <- roc(data_test_na_20$booking.status, as.numeric(predicciones_optimizadas_test_na_20))
+roc_original_na_50 <- roc(data_test_na_50$booking.status, as.numeric(predicciones_optimizadas_test_na_50))
+roc_original_na_75 <- roc(data_test_na_75$booking.status, as.numeric(predicciones_optimizadas_test_na_75))
+
+# Graficar la curva ROC del modelo original
+plot(roc_original, col = "blue", main = "Curvas ROC Comparativas", lwd = 4)
+
+# Añadir la curva ROC del modelo con 20% de NA
+lines(roc_original_na_20, col = "red", lwd = 4)
+
+# Añadir la curva ROC del modelo con 50% de NA
+lines(roc_original_na_50, col = "orange", lwd = 4)
+
+# Añadir la curva ROC del modelo con 75% de NA
+lines(roc_original_na_75, col = "lightgreen", lwd = 4)
+
+# Añadir una leyenda para identificar las curvas
+legend("bottomright", legend = c("Modelo original", "Modelo con 20% NA", "Modelo con 50% NA", "Modelo con 75% NA"),
+       col = c("blue", "red", "orange", "lightgreen"), lwd = 4)
+
+```
+
+## Ejercicio 8: Conclusión
+
+En este trabajo práctico, uno de los mayores desafíos que enfrentamos fue encontrar una base de datos adecuada que permitiera construir un modelo con buenas métricas de predicción y que generara un árbol de decisión complejo y significativo. En varias ocasiones, probamos con distintos archivos CSV, pero muchos de ellos solo permitían la creación de árboles muy simples, con apenas una o dos hojas. Una posible razón para esto podría ser que esos conjuntos de datos contenían pocas variables predictoras relevantes y que carecían de la variabilidad necesaria para segmentar los datos de manera más detallada o estaban desbalanceados.
+
+Fuimos exigentes en la selección del archivo CSV porque queríamos asegurarnos de contar con buenas variables predictoras. El conjunto de datos que finalmente elegimos nos proporcionó resultados prometedores desde el principio: utilizando los hiperparámetros por defecto, obtuvimos un AUC-ROC de 0.79, un punto de partida sólido. Posteriormente, al optimizar los hiperparámetros, logramos mejorar esta métrica a 0.84, lo que refleja una mejora considerable en la capacidad del modelo para distinguir entre las clases.
+
+Aunque el enunciado nos pedía que diferenciáramos los buenos modelos utilizando únicamente la métrica AUC-ROC, también decidimos analizar otras métricas para obtener una evaluación más completa del modelo. Concluimos que la AUC-ROC es una excelente métrica para medir la calidad del modelo, ya que refleja la interacción de todas las variables que afectan a las otras métricas clave: la matriz de confusión, el recall, la precisión, y el F1-score.
+
+Durante el proceso de optimización, descubrimos que es difícil encontrar los hiperparámetros óptimos debido al amplio rango de valores que pueden tomar, especialmente para min_bucket y min_split. Para evitar un costo computacional excesivo, realizamos la búsqueda en incrementos de 1000, 500, o 100. Sin embargo, esta estrategia implica sacrificar la posibilidad de explorar valores intermedios que podrían mejorar el modelo.
+
+Además, aprendimos sobre el impacto significativo que tienen los valores faltantes (NA) en la performance del modelo. A medida que aumenta la cantidad de datos faltantes, el modelo se ve afectado porque tiene menos información disponible para determinar qué variables son importantes para la clasificación. Esto dificulta la construcción de un buen modelo y afecta negativamente la precisión de las predicciones.
+
+Como conclusión final, consideramos que nuestro árbol optimizado presenta numerosas fortalezas y predice con precisión en la mayoría de los casos. Sin embargo, reconocemos que aún hay espacio para seguir mejorando el modelo, ya sea mediante la inclusión de más datos, o la exploración de otros enfoques de optimización de hiperparámetros.
